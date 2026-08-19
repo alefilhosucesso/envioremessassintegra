@@ -1,0 +1,9 @@
+# dados gerados/reais - mudam todo mês e contêm dados de clientes
+mapa_empresas_sintegra.csv
+Sintegra.docx
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
