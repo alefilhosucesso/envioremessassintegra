@@ -34,7 +34,13 @@ from difflib import SequenceMatcher
 
 PASTA_REMESSAS = r"Z:\SCAN\AARQUIVOS TRANSITÓRIOS\MAYNARA\SINTEGRA\REMESSAS"
 PASTA_EMPRESAS = r"Z:\EMPRESAS\EMPRESAS ATIVAS"
-SAIDA_CSV = r"mapa_empresas_sintegra.csv"
+# ancorados na pasta do script (não no diretório atual), pra que o robô de
+# envio ache os mesmos arquivos independente de onde o python foi chamado
+AQUI = os.path.dirname(os.path.abspath(__file__))
+SAIDA_CSV = os.path.join(AQUI, "mapa_empresas_sintegra.csv")
+# mapa acumulado CNPJ -> pasta, que só cresce: guarda as conferências manuais
+# de todos os ciclos anteriores para não ter que refazê-las todo mês
+MAPA_ACUMULADO = os.path.join(AQUI, "mapa_cnpj_pastas.csv")
 
 # a partir de que semelhança a sugestão é considerada confiável
 LIMITE_ALTA = 0.88
@@ -120,7 +126,7 @@ def consultar_cnpj_publico(cnpj: str) -> dict | None:
     """
     url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    for tentativa in range(3):
+    for tentativa in range(5):
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 dados = json.load(r)
@@ -129,8 +135,8 @@ def consultar_cnpj_publico(cnpj: str) -> dict | None:
                 "nome_fantasia": dados.get("nome_fantasia", ""),
             }
         except urllib.error.HTTPError as e:
-            if e.code == 429 and tentativa < 2:
-                time.sleep(3)
+            if e.code == 429 and tentativa < 4:
+                time.sleep(20 * (tentativa + 1))
                 continue
             return None
         except Exception:
@@ -143,6 +149,35 @@ def competencia(data_final: str) -> str:
     if len(data_final) == 8:
         return f"{data_final[4:6]} {data_final[0:4]}"
     return ""
+
+
+def carregar_mapa_acumulado() -> dict:
+    """CNPJ -> (pasta, razao_social) das conferências já feitas em ciclos
+    anteriores. Na primeira execução, semeia a partir do CSV do mês passado."""
+    mapa = {}
+    for caminho in (SAIDA_CSV, MAPA_ACUMULADO):  # o acumulado sobrescreve
+        if not os.path.isfile(caminho):
+            continue
+        with open(caminho, newline="", encoding="utf-8-sig") as f:
+            for linha in csv.DictReader(f, delimiter=";"):
+                pasta = (linha.get("pasta_confirmada") or "").strip()
+                cnpj = (linha.get("cnpj") or "").strip()
+                if not re.fullmatch(r"\d{14}", cnpj):
+                    # o Excel estraga a coluna cnpj (notacao cientifica, zero a
+                    # esquerda sumindo). O nome do arquivo e a fonte confiavel.
+                    m = re.match(r"(\d{14})", linha.get("arquivo") or "")
+                    cnpj = m.group(1) if m else ""
+                if cnpj and pasta:
+                    mapa[cnpj] = (pasta, (linha.get("razao_social") or "").strip())
+    return mapa
+
+
+def salvar_mapa_acumulado(mapa: dict) -> None:
+    with open(MAPA_ACUMULADO, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(["cnpj", "pasta_confirmada", "razao_social"])
+        for cnpj in sorted(mapa):
+            w.writerow([cnpj, mapa[cnpj][0], mapa[cnpj][1]])
 
 
 # ------------------------------------------------------------------ processo
@@ -161,6 +196,10 @@ def main() -> None:
 
     zips = sorted(f for f in os.listdir(PASTA_REMESSAS) if f.lower().endswith(".zip"))
     print(f"{len(zips)} remessas encontradas\n")
+
+    mapa_anterior = carregar_mapa_acumulado()
+    print(str(len(mapa_anterior)) + " CNPJs ja conferidos em ciclos anteriores")
+
 
     def melhor_pasta(razao_social: str):
         alvo = normalizar(razao_social)
@@ -188,6 +227,15 @@ def main() -> None:
             razao_social = dados["razao_social"]
             comp = competencia(dados["data_final"])
             origem = "zip"
+        elif cnpj_nome in mapa_anterior and mapa_anterior[cnpj_nome][0] in pastas:
+            # CNPJ já conferido num ciclo anterior e a pasta ainda existe:
+            # reaproveita e nem consulta a API pública
+            divergente = False
+            melhor, melhor_score = mapa_anterior[cnpj_nome][0], 1.0
+            cnpj = cnpj_nome
+            razao_social = mapa_anterior[cnpj_nome][1]
+            comp = ""  # período vem do recibo no envio
+            origem = "mapa anterior"
         elif protegido and cnpj_nome:
             # zip protegido por senha: usa o CNPJ do nome do arquivo e busca
             # a razão social numa fonte pública (CNPJ é dado cadastral público)
@@ -247,6 +295,11 @@ def main() -> None:
         w = csv.DictWriter(f, fieldnames=campos, delimiter=";")
         w.writeheader()
         w.writerows(linhas)
+
+    for l in linhas:
+        if l["cnpj"] and l["pasta_confirmada"]:
+            mapa_anterior[l["cnpj"]] = (l["pasta_confirmada"], l["razao_social"])
+    salvar_mapa_acumulado(mapa_anterior)
 
     alta = sum(1 for l in linhas if l["situacao"] == "ALTA")
     conferir = sum(1 for l in linhas if l["situacao"] == "CONFERIR")

@@ -1,0 +1,63 @@
+SETUP EM OUTRO PC - Automacao Envio Remessas Sintegra
+=======================================================
+
+Os scripts ficam na pasta da rede. Se o outro PC enxerga essa pasta, NAO
+precisa clonar nada do git - roda direto de la.
+
+1. Instalar Python 3.12+
+   https://www.python.org/downloads/
+
+2. Instalar Playwright:
+   pip install playwright
+
+3. Mapear o mesmo compartilhamento de rede como Z:
+   (os scripts usam Z:\EMPRESAS, Z:\SCAN, Z:\DADOS_TAREFFA nos caminhos fixos,
+   entao tem que ser a letra Z mesmo)
+
+4. Abrir o Edge com depuracao remota (perfil separado do dia a dia):
+   msedge.exe --remote-debugging-port=9222 --user-data-dir="C:\SAT_ROBO_PROFILE"
+   - Desativar o bloqueador de pop-up nesse perfil
+   - Logar no SAT
+   - Ir ate a tela "Envio de Remessa - Sintegra - Convenio 57"
+
+5. Abrir o Prompt de Comando na pasta dos scripts:
+   Z:
+   cd "Z:\SCAN\AARQUIVOS TRANSITORIOS\ALE\Automacoes\Envio de Remessas SINTEGRA"
+
+6. Rodar nessa ordem:
+   python indexar_empresas_sintegra.py
+   -> abrir mapa_empresas_sintegra.csv e conferir SO as linhas
+      CONFERIR / NAO ENCONTRADA / CNPJ DIVERGE, preenchendo pasta_confirmada
+   python robo_envio_sintegra.py
+   python enviar_recibos_tareffa.py
+   -> demora: um recibo a cada 25s (300 empresas = ~2h). Pode deixar rodando.
+
+Obs 1: os dois CSVs (mapa_empresas_sintegra.csv e mapa_cnpj_pastas.csv) ficam
+na propria pasta da rede, entao qualquer PC enxerga os mesmos dados. Os
+scripts acham esses arquivos pela pasta onde eles mesmos estao, mas ainda
+assim rode com o cd do passo 5 pra nao se perder.
+
+Obs 2: mapa_cnpj_pastas.csv e o mapa acumulado CNPJ -> pasta. Ele guarda
+todas as conferencias manuais ja feitas, de qualquer PC, e so cresce. Por
+isso as empresas ja conferidas em meses anteriores nao voltam como CONFERIR
+nem gastam consulta na API publica. NAO APAGAR esse arquivo.
+
+Obs 3: com lote grande (centenas de remessas) o envio demora. Se a sessao do
+SAT cair ou for preciso parar no meio, e so relogar e rodar
+robo_envio_sintegra.py de novo: os zips ja enviados foram movidos para
+REMESSAS\ENVIADAS, entao ele continua de onde parou, sem reenviar nada.
+
+Obs 4: para testar com UMA remessa so antes de soltar o lote inteiro:
+   python robo_envio_sintegra.py 1
+O numero e quantas remessas enviar (so conta as que ja tem pasta_confirmada
+no mapa). Sem numero, envia tudo. Conferir o PDF nos dois destinos antes de
+rodar sem argumento.
+
+Obs 5: o robo de envio NAO copia mais o recibo para a fila do TAREFFA.
+Isso e etapa separada: enviar_recibos_tareffa.py. Todos os recibos do mes
+tem o mesmo nome (a competencia), entao mandados em rajada um sobrescreve
+o outro antes de a fila consumir. O script manda um por vez, espera o
+intervalo (25s por padrao) e confere se o anterior sumiu da fila antes de
+mandar o proximo. Sem lista, manda todas as empresas do mapa. Ele NUNCA
+fala com o SAT - so copia PDF ja arquivado, pode repetir sem risco.
+Apagar recibos_enviados_tareffa.txt ao comecar um mes novo.

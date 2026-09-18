@@ -44,6 +44,9 @@ empresa.
 | 1 | `Z:\EMPRESAS\EMPRESAS ATIVAS\<pasta da empresa>\ESCRITA FISCAL\Sintegra\<ano>\MM AAAA.pdf` |
 | 2 | `Z:\DADOS_TAREFFA\FISCAL\Enviar\MM AAAA.pdf` |
 
+O destino 1 é gravado pelo `robo_envio_sintegra.py`. O destino 2 **não** —
+ver "Fila do TAREFFA" abaixo.
+
 ## Decisões já tomadas
 
 - **Tecnologia:** Playwright/Selenium controlando o navegador — não pyautogui.
@@ -95,7 +98,7 @@ empresa.
 - [x] Escrever o robô de envio (`robo_envio_sintegra.py`). Seletores e
       estrutura do recibo confirmados inspecionando o SAT de verdade via
       CDP em 19/08/2026 (ver detalhes abaixo). Ainda não rodado em lote.
-- [x] Teste com uma única remessa antes de rodar em lote (FLOR&SER,
+- [x] Teste com uma única remessa antes de rodar em lote (uma empresa,
       arquivada manualmente passo a passo pra validar a lógica) e depois
       **lote completo rodado em produção em 19/08/2026**: 41 remessas
       enviadas e arquivadas com sucesso (PDF nos 2 destinos + zip movido
@@ -103,6 +106,31 @@ empresa.
       contribuinte de SC — ficou em `REMESSAS`, não mexido), 1 pulada por
       não estar no mapa, ficou em `REMESSAS`. Robô funcionando ponta a
       ponta.
+
+### Ciclo de setembro/2026 (18/09/2026)
+
+Segundo ciclo em produção, agora com **326 remessas** (competência 08/2026)
+contra 43 do primeiro. O que aprendemos:
+
+- **Mapa acumulado criado** (`mapa_cnpj_pastas.csv`): guarda todas as
+  conferências manuais já feitas e só cresce, para não refazê-las todo mês.
+  Fechou o ciclo com 328 CNPJs. A conferência manual de outubro deve ser
+  quase zero — só empresas novas.
+- **BrasilAPI tem cota.** 326 consultas seguidas geraram 23 erros HTTP 429.
+  O backoff subiu de 3s/2 tentativas para 20s crescentes/5 tentativas e
+  recuperou 22 das 23. A que sobrou deu 404 (uma empresa nova ainda
+  não propagada no cadastro público) e foi resolvida à mão.
+- **Excel estraga o CSV.** Ao salvar o mapa, ele converte a coluna `cnpj`
+  para notação científica e come zeros à esquerda (`00123456000199` vira
+  `1,40E+11`). O `carregar_mapa_acumulado()` agora detecta isso e tira o
+  CNPJ dos 14 primeiros dígitos do nome do arquivo, que é a fonte
+  confiável. Ao conferir, abrir por Dados -> De Texto/CSV marcando `cnpj`
+  como Texto, e preencher sempre `pasta_confirmada` (o robô ignora as
+  colunas `situacao` e `pasta_sugerida`).
+- **Resultado:** 326/326 enviadas e arquivadas, zero rejeitadas pelo SAT.
+- **Fila do TAREFFA falhou:** 253 das 326 não chegaram, por sobrescrita.
+  Origem do `enviar_recibos_tareffa.py` — ver seção acima. Os recibos não
+  se perderam: estavam todos na pasta da empresa, bastou recopiar.
 
 ### Notas técnicas do SAT (Envio_Remessa.aspx), confirmadas em 19/08/2026
 
@@ -137,15 +165,44 @@ independente de quantas empresas houver:
 
 1. Rodar `indexar_empresas_sintegra.py` de novo — ele processa só o que
    está em `REMESSAS` naquele momento (as novas do mês) e gera um
-   `mapa_empresas_sintegra.csv` novo.
+   `mapa_empresas_sintegra.csv` novo. As conferências manuais já feitas
+   ficam guardadas no **mapa acumulado** (`mapa_cnpj_pastas.csv`, no Z:,
+   fora do git), que só cresce: CNPJ já conferido em qualquer ciclo
+   anterior entra direto como `ALTA`, sem consultar a BrasilAPI de novo.
+   Se a pasta gravada no acumulado não existir mais em `EMPRESAS ATIVAS`
+   (empresa renomeada/saiu), ele ignora o acumulado e refaz o match.
 2. Abrir o CSV e conferir só as linhas `CONFERIR` ou `NAO ENCONTRADA`
    (normalmente poucas — na primeira leva foi 1 em 43). Preencher
    `pasta_confirmada` à mão nelas.
 3. Rodar `robo_envio_sintegra.py`. Ele usa a última versão do
    `mapa_empresas_sintegra.csv`.
 
-O esforço manual escala com o número de empresas que caem fora do match
-automático, não com o número total de empresas.
+4. Rodar `enviar_recibos_tareffa.py` para alimentar a fila do TAREFFA.
+   Sem lista, manda os recibos de todas as empresas do mapa; com um CSV
+   de faltantes (coluna `Nome Empresa`), só as de lá. Apagar o
+   `recibos_enviados_tareffa.txt` antes de começar um mês novo.
+
+### Fila do TAREFFA (decidido em 18/09/2026)
+
+Os recibos do mês inteiro têm o **mesmo nome** (`MM AAAA.pdf`, que é a
+competência). Quando o robô copiava cada um direto para
+`Z:\DADOS_TAREFFA\FISCAL\Enviar` logo após o envio, gravava mais rápido do
+que o TAREFFA consumia a fila, e um recibo sobrescrevia o outro. Em
+setembro/2026, de 326 enviados, 253 não chegaram ao TAREFFA.
+
+Por isso a cópia saiu do robô e virou etapa separada
+(`enviar_recibos_tareffa.py`), que manda um por vez, espera um intervalo
+(25s por padrão) e **confirma que o anterior sumiu da fila** antes de
+mandar o próximo — se o TAREFFA travar, ele para em vez de sobrescrever.
+Ele nunca fala com o SAT: só copia PDF já arquivado na pasta da empresa,
+então pode ser repetido à vontade sem risco fiscal.
+
+O esforço manual escala com o número de empresas **novas** que caem fora do
+match automático — as já conferidas nunca voltam.
+
+Lote grande: se a sessão do SAT cair no meio, basta relogar e rodar o robô
+de novo. Os zips já enviados foram movidos para `REMESSAS\ENVIADAS`, então
+ele continua de onde parou sem reenviar nada.
 
 ## Observações
 

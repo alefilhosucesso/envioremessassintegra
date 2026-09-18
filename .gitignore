@@ -1,5 +1,8 @@
 # dados gerados/reais - mudam todo mês e contêm dados de clientes
 mapa_empresas_sintegra.csv
+mapa_cnpj_pastas.csv
+recibos_enviados_tareffa.txt
+Faltantes_Tareffa.csv
 Sintegra.docx
 
 # python

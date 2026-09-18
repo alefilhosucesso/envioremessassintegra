@@ -15,8 +15,9 @@ no mapa_empresas_sintegra.csv:
   3. Se aceitar, abre a janela de recibo. Confere se o CNPJ do recibo bate
      com o CNPJ do nome do arquivo - se divergir, PARA (problema fiscal).
   4. Gera o PDF do recibo direto da página (Playwright page.pdf()).
-  5. Salva o PDF nos dois destinos definidos em CLAUDE.md, criando as
-     pastas Sintegra/<ano> se necessário.
+  5. Salva o PDF na pasta da empresa (ESCRITA FISCAL\\Sintegra\\<ano>),
+     criando as pastas se necessário. A cópia para a fila do TAREFFA
+     é etapa separada: enviar_recibos_tareffa.py.
   6. Move o .zip enviado para PASTA_REMESSAS\\ENVIADAS (nunca apaga).
   7. No final, imprime um resumo: enviados / pulados / motivo.
 
@@ -40,7 +41,9 @@ CDP_URL = "http://localhost:9222"
 PASTA_REMESSAS = r"Z:\SCAN\AARQUIVOS TRANSITÓRIOS\MAYNARA\SINTEGRA\REMESSAS"
 PASTA_ENVIADAS = os.path.join(PASTA_REMESSAS, "ENVIADAS")
 PASTA_EMPRESAS = r"Z:\EMPRESAS\EMPRESAS ATIVAS"
-DESTINO_ENVIAR = r"Z:\DADOS_TAREFFA\FISCAL\Enviar"
+# O recibo NAO vai mais direto para a fila do TAREFFA: os PDFs do mes todo
+# tem o mesmo nome (a competencia) e um sobrescrevia o outro antes de a
+# fila consumir. Isso agora e etapa separada -> enviar_recibos_tareffa.py
 MAPA_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "mapa_empresas_sintegra.csv")
 
@@ -180,11 +183,8 @@ def processar_remessa(page, ctx, nome_zip: str, linha_mapa: dict, log: list):
     )
     garantir_pasta(pasta_sintegra_ano)
     destino1 = os.path.join(pasta_sintegra_ano, f"{comp}.pdf")
-    garantir_pasta(DESTINO_ENVIAR)
-    destino2 = os.path.join(DESTINO_ENVIAR, f"{comp}.pdf")
 
     recibo.pdf(path=destino1)
-    shutil.copyfile(destino1, destino2)
     recibo.close()
 
     garantir_pasta(PASTA_ENVIADAS)
@@ -205,6 +205,13 @@ def main():
     mapa = ler_mapa()
     zips = sorted(f for f in os.listdir(PASTA_REMESSAS) if f.lower().endswith(".zip"))
     print(f"{len(zips)} remessas encontradas em {PASTA_REMESSAS}\n")
+
+    if len(sys.argv) > 1:
+        # teste: envia so as N primeiras remessas ja confirmadas no mapa
+        n = int(sys.argv[1])
+        zips = [z for z in zips
+                if (mapa.get(z) or {}).get("pasta_confirmada", "").strip()][:n]
+        print("MODO TESTE: " + str(len(zips)) + " remessa(s): " + ", ".join(zips))
 
     p, browser, ctx, page = conectar_pagina_envio()
 

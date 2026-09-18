@@ -15,10 +15,18 @@ antes era feito manualmente, empresa por empresa.
    manual das poucas remessas sem match automático de alta confiança.
 2. **`robo_envio_sintegra.py`** — usando o CSV já conferido, conecta numa
    janela do navegador já aberta e autenticada no SAT (via CDP), envia
-   cada remessa, lê o recibo retornado, gera o PDF do recibo e arquiva nos
-   destinos corretos, movendo o `.zip` já enviado para uma subpasta
-   `ENVIADAS`. Remessas rejeitadas pelo SAT ou sem pasta identificada são
+   cada remessa, lê o recibo retornado, gera o PDF do recibo e o arquiva
+   na pasta da empresa, movendo o `.zip` já enviado para uma subpasta
+   `ENVIADAS`.
    puladas e registradas no resumo final, nunca travam o lote inteiro.
+
+3. **`enviar_recibos_tareffa.py`** — copia os recibos já arquivados para
+   a fila de outro sistema interno, um por vez, com intervalo e
+   confirmando que a fila consumiu o anterior antes de mandar o próximo.
+   Existe porque todos os recibos de um mês têm o mesmo nome (a
+   competência): mandados em rajada, um sobrescreve o outro. Este script
+   não interage com o portal — só copia PDF que já existe, então pode ser
+   repetido sem risco.
 
 O robô **não faz login sozinho** — o usuário loga manualmente no SAT numa
 janela do navegador aberta com depuração remota habilitada, e o robô
@@ -43,6 +51,9 @@ de conferência (CNPJ do arquivo == CNPJ do recibo) seja respeitada.
 2. Abrir o CSV e preencher a coluna `pasta_confirmada` nas linhas que
    ficaram como `CONFERIR` ou `NAO ENCONTRADA`.
 3. `python robo_envio_sintegra.py` — envia o que está confirmado no mapa.
+4. `python enviar_recibos_tareffa.py` — alimenta a fila do outro sistema
+   (um recibo a cada 25s; apagar `recibos_enviados_tareffa.txt` a cada
+   novo mês).
 
 Detalhes de decisões de arquitetura, descobertas sobre a estrutura do SAT
 e histórico do projeto estão em [`CLAUDE.md`](CLAUDE.md).
